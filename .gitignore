@@ -1,0 +1,29 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+venv/
+.venv/
+env/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# 运行时产物（保留 data/records.json 作为初始空数据，但不导出用户数据）
+exports/
+*.csv
+!screenshots/*.png
+
+# 测试与缓存
+.pytest_cache/
+.coverage
+htmlcov/
