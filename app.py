@@ -1,230 +1,256 @@
-# -*- coding: utf-8 -*-
-"""
-1号模块：app.py —— Streamlit 主界面与集成
-职责：页面导航、表单输入、调用其他 9 个业务模块
-规范：本文件不直接读写 JSON，所有数据操作经由 storage / models 等模块
-启动：streamlit run app.py
-"""
+"""拾光账本的 Streamlit 业务入口。"""
+
+from datetime import date
+
 import streamlit as st
-from datetime import date as _date
+import ledger_ui as ui
 
-# ========== 页面基础配置 ==========
-st.set_page_config(
-    page_title="个人记账本",
-    page_icon="💰",
-    layout="centered",
-)
-
-# ========== 常量（从 models 导入，未就绪时使用规范默认值）==========
-try:
-    from models import EXPENSE_CATEGORIES, INCOME_CATEGORIES
-except ImportError:
-    EXPENSE_CATEGORIES = ["饮食", "交通", "购物", "娱乐", "住房", "医疗", "学习", "其他"]
-    INCOME_CATEGORIES = ["工资", "兼职", "奖学金", "奖金", "其他"]
+from account_statistics import calculate_summary
+from add_record import add_record
+from charts import render_charts
+from export_data import export_csv
+from filter_records import filter_records
+from manage_records import delete_record, update_record
+from models import EXPENSE_CATEGORIES, INCOME_CATEGORIES
+from storage import load_records
+from view_records import get_recent_records
 
 
-# ========== 业务模块懒加载（未就绪时友好提示）==========
-def _safe_import():
-    """统一加载业务模块，返回 (records, modules_dict)"""
-    mods = {}
+_TYPE_LABELS = {"expense": "支出", "income": "收入"}
+_CATEGORIES = {"expense": EXPENSE_CATEGORIES, "income": INCOME_CATEGORIES}
+_NAV_LABELS = {
+    "收支总览": "▦   收支总览",
+    "新增记账": "＋   新增记账",
+    "最近记录": "≡   最近记录",
+    "筛选统计": "⌕   筛选统计",
+    "数据图表": "▥   数据图表",
+    "编辑与删除": "✎   编辑与删除",
+    "导出 CSV": "↧   导出 CSV",
+}
+
+
+def _navigate(page):
+    st.session_state["ledger_page"] = page
+
+
+def _record_fields(record_type, record):
+    """在新增和编辑表单中使用相同的字段和控件。"""
+    categories = _CATEGORIES[record_type]
+    category = record.get("category")
+    left, right = st.columns(2)
+    amount = left.number_input(
+        "金额（元）", min_value=0.0, value=float(record.get("amount", 0)),
+        step=0.01, format="%.2f",
+    )
+    record_date = left.date_input("日期", value=date.fromisoformat(record["date"]))
+    category = right.selectbox(
+        "类别", categories, index=categories.index(category) if category in categories else 0,
+    )
+    note = right.text_input("备注（可选）", value=record.get("note", ""), max_chars=200)
+    return {
+        "date": record_date.isoformat(),
+        "type": record_type,
+        "amount": amount,
+        "category": category,
+        "note": note,
+    }
+
+
+def _record_table(records):
+    rows = [
+        {
+            "日期": record["date"],
+            "类型": _TYPE_LABELS[record["type"]],
+            "类别": record["category"],
+            "金额（元）": record["amount"],
+            "备注": record["note"],
+        }
+        for record in records
+    ]
+    st.dataframe(
+        rows,
+        hide_index=True,
+        column_config={"金额（元）": st.column_config.NumberColumn(format="%.2f")},
+    )
+
+
+def page_add(records):
+    ui.heading("A LITTLE MOMENT", "新增记账", "记下一笔刚刚发生的收入或支出。")
+    record_type = st.radio(
+        "类型", list(_TYPE_LABELS), format_func=_TYPE_LABELS.__getitem__, horizontal=True,
+    )
+    form_version = st.session_state.get("add_form_version", 0)
+    with st.form(f"add-{form_version}"):
+        fields = _record_fields(record_type, {"date": date.today().isoformat()})
+        submitted = st.form_submit_button("保存记录", type="primary")
+    if not submitted:
+        return
+
+    fields["record_type"] = fields.pop("type")
     try:
-        from storage import load_records, save_records
-        mods["load_records"] = load_records
-        mods["save_records"] = save_records
-    except ImportError:
-        st.error("⚠️ storage.py 模块未就绪，数据读写不可用")
-        return [], mods
+        record = add_record(**fields)
+    except ValueError as exc:
+        st.error(f"保存失败：{exc}")
+        return
+    st.session_state["add_form_version"] = form_version + 1
+    st.session_state["notice"] = f"已保存：{_TYPE_LABELS[record_type]} {record['amount']:.2f} 元"
+    st.rerun()
 
-    for name, mod_name, func in [
-        ("add_record", "add_record", "add_record"),
-        ("get_recent_records", "view_records", "get_recent_records"),
-        ("filter_records", "filter_records", "filter_records"),
-        ("calculate_summary", "statistics", "calculate_summary"),
-        ("category_totals", "statistics", "category_totals"),
-        ("render_charts", "charts", "render_charts"),
-        ("export_csv", "export_data", "export_csv"),
-    ]:
-        try:
-            m = __import__(mod_name)
-            mods[name] = getattr(m, func)
-        except ImportError:
-            mods[name] = None
-        except AttributeError:
-            mods[name] = None
 
+def page_recent(records):
+    ui.heading("LITTLE MOMENTS", "最近记录", "按记账日期查看最近 10 笔收支。")
+    if records:
+        _record_table(get_recent_records(records))
+    else:
+        ui.empty_state("还没有流水", "新增第一笔记录后，这里会显示最新的收支。")
+        st.button("＋ 记一笔", type="primary", on_click=_navigate, args=("新增记账",))
+
+
+def page_filter(records):
+    ui.heading("FIND A RECORD", "筛选统计", "组合筛选条件，看看这段时间的每笔收支。")
+    today = date.today()
+    record_dates = [date.fromisoformat(record["date"]) for record in records]
+    date_bounds = {
+        "min_value": min([date(1900, 1, 1), *record_dates]),
+        "max_value": max([date(2100, 12, 31), today, *record_dates]),
+    }
+    with st.container(border=True):
+        ui.heading("FILTERS", "筛选条件", "留空的条件不限。", panel=True)
+        kinds, dates, amounts = st.columns(3)
+        record_type = kinds.selectbox(
+            "类型", [None, *_TYPE_LABELS],
+            format_func=lambda value: _TYPE_LABELS.get(value, "全部"),
+        )
+        categories = _CATEGORIES.get(record_type, list(dict.fromkeys(EXPENSE_CATEGORIES + INCOME_CATEGORIES)))
+        category = kinds.selectbox("类别", ["全部", *categories])
+        if category not in categories:
+            category = None
+        start = dates.date_input("开始日期", value=None, **date_bounds)
+        end = dates.date_input("结束日期", value=None, **date_bounds)
+        minimum = amounts.number_input("最小金额", min_value=0.0, value=None, step=0.01, format="%.2f")
+        maximum = amounts.number_input("最大金额", min_value=0.0, value=None, step=0.01, format="%.2f")
     try:
-        records = mods["load_records"]()
-    except Exception as e:
-        st.error(f"数据加载失败：{e}")
-        records = []
-    return records, mods
+        selected = filter_records(
+            records, start_date=start.isoformat() if start else None,
+            end_date=end.isoformat() if end else None,
+            category=category, record_type=record_type, min_amount=minimum, max_amount=maximum,
+        )
+        summary = calculate_summary(selected)
+    except ValueError as exc:
+        st.error(str(exc))
+        return
+
+    income, expense, balance, count = st.columns(4)
+    income.metric("总收入", f"¥{summary['income']:,.2f}")
+    expense.metric("总支出", f"¥{summary['expense']:,.2f}")
+    balance.metric("结余", f"¥{summary['balance']:,.2f}")
+    count.metric("笔数", summary["count"])
+    if selected:
+        _record_table(selected)
+    elif not records:
+        ui.empty_state("还没有流水", "记下第一笔收入或支出，再来看看你的收支统计。")
+        st.button("＋ 记一笔", type="primary", on_click=_navigate, args=("新增记账",))
+    else:
+        ui.empty_state("没有符合条件的记录", "可以调整日期、类别或金额范围。")
 
 
-# ========== 各页面 ==========
-def page_add(records, mods):
-    """新增记账页"""
-    st.subheader("📝 新增一笔记录")
-    with st.form("add_form", clear_on_submit=True):
-        c1, c2 = st.columns(2)
-        with c1:
-            rec_type = st.radio("类型", ["expense", "income"],
-                                format_func=lambda x: "支出" if x == "expense" else "收入")
-            amount = st.number_input("金额（元）", min_value=0.0, step=0.5, format="%.2f")
-        with c2:
-            d = st.date_input("日期", value=_date.today())
-            cats = EXPENSE_CATEGORIES if rec_type == "expense" else INCOME_CATEGORIES
-            category = st.selectbox("类别", cats)
-        note = st.text_input("备注（可选）", max_chars=200)
-        submitted = st.form_submit_button("✅ 保存记录", use_container_width=True)
+def page_charts(records):
+    ui.heading("THE BIG PICTURE", "数据图表", "查看全部记录的收支对比与支出类别分布。")
+    if not records:
+        ui.empty_state("图表在等第一笔记录", "新增收入或支出后，图表会自动生成。")
+        return
+    try:
+        render_charts(records)
+    except ValueError as exc:
+        st.error(f"图表统计失败：{exc}")
+
+
+def page_manage(records):
+    ui.heading("TIDY THE BOOK", "编辑与删除", "选中一笔流水后修改，删除前需要确认。")
+    if not records:
+        ui.empty_state("暂无可编辑的记录", "记下第一笔流水后，就可以在这里管理。")
+        return
+
+    by_id = {record["id"]: record for record in get_recent_records(records, limit=len(records))}
+
+    def label(record_id):
+        record = by_id[record_id]
+        return (
+            f"{record['date']} · {_TYPE_LABELS[record['type']]} · {record['category']} · "
+            f"¥{record['amount']:,.2f} · {record_id}"
+        )
+
+    record_id = st.selectbox("选择记录", list(by_id), format_func=label)
+    record = by_id[record_id]
+    record_type = st.radio(
+        "修改类型", list(_TYPE_LABELS), index=list(_TYPE_LABELS).index(record["type"]),
+        format_func=_TYPE_LABELS.__getitem__, horizontal=True, key=f"edit-type-{record_id}",
+    )
+    with st.form(f"edit-{record_id}"):
+        fields = _record_fields(record_type, record)
+        submitted = st.form_submit_button("保存修改", type="primary")
 
     if submitted:
-        if amount <= 0:
-            st.error("金额必须大于 0")
-            return
-        if mods.get("add_record") is None:
-            st.warning("add_record.py 模块未就绪，无法保存")
-            return
         try:
-            rec = mods["add_record"](
-                date=d.isoformat(),
-                record_type=rec_type,
-                amount=round(float(amount), 2),
-                category=category,
-                note=note.strip(),
-            )
-            st.success(f"已保存：{rec_type} {amount:.2f} 元 / {category}")
+            updated = update_record(record_id, fields)
+        except ValueError as exc:
+            st.error(f"修改失败：{exc}")
+            return
+        if updated:
+            st.session_state["notice"] = "已保存修改。"
             st.rerun()
-        except ValueError as e:
-            st.error(f"校验失败：{e}")
-        except Exception as e:
-            st.error(f"保存失败：{e}")
+        st.warning("这条记录已被删除，请刷新后重试。")
+
+    with st.expander("删除这条记录"):
+        confirmed = st.checkbox("确认永久删除", key=f"confirm-delete-{record_id}")
+        if st.button("删除记录", disabled=not confirmed) and confirmed:
+            try:
+                deleted = delete_record(record_id)
+            except ValueError as exc:
+                st.error(f"删除失败：{exc}")
+                return
+            if deleted:
+                st.session_state["notice"] = "已删除记录。"
+                st.rerun()
+            st.warning("这条记录已被删除，请刷新后重试。")
 
 
-def page_recent(records, mods):
-    """最近记录页"""
-    st.subheader("📋 最近记录")
-    if not records:
-        st.info("暂无记录，去新增一笔吧")
-        return
-    if mods.get("get_recent_records"):
-        try:
-            recent = mods["get_recent_records"](records, limit=10)
-        except Exception:
-            recent = list(reversed(records[-10:]))
-    else:
-        recent = list(reversed(records[-10:]))
-    st.dataframe(recent, use_container_width=True, hide_index=True)
-
-
-def page_filter_stat(records, mods):
-    """筛选 + 统计页"""
-    st.subheader("🔍 筛选条件")
-    c1, c2 = st.columns(2)
-    with c1:
-        f_type = st.selectbox("类型", ["全部", "expense", "income"],
-                               format_func=lambda x: {"全部": "全部", "expense": "支出", "income": "收入"}[x])
-        f_min = st.number_input("最小金额", min_value=0.0, step=10.0)
-    with c2:
-        f_cat = st.selectbox("类别", ["全部"] + EXPENSE_CATEGORIES + INCOME_CATEGORIES)
-        f_max = st.number_input("最大金额", min_value=0.0, step=10.0, value=100000.0)
-
-    f_type_arg = None if f_type == "全部" else f_type
-    f_cat_arg = None if f_cat == "全部" else f_cat
-    min_arg = None if f_min == 0 else float(f_min)
-    max_arg = None if f_max == 100000 else float(f_max)
-
-    try:
-        if mods.get("filter_records"):
-            selected = mods["filter_records"](
-                records, category=f_cat_arg, record_type=f_type_arg,
-                min_amount=min_arg, max_amount=max_arg,
-            )
-        else:
-            selected = records
-    except ValueError as e:
-        st.error(f"筛选条件有误：{e}")
-        selected = []
-
-    st.subheader("📊 统计结果")
-    if mods.get("calculate_summary"):
-        try:
-            summary = mods["calculate_summary"](selected)
-        except Exception:
-            summary = None
-    else:
-        summary = None
-
-    if summary:
-        m1, m2, m3, m4 = st.columns(4)
-        m1.metric("总收入", f"¥{summary['income']:.2f}")
-        m2.metric("总支出", f"¥{summary['expense']:.2f}")
-        m3.metric("结余", f"¥{summary['balance']:.2f}")
-        m4.metric("笔数", summary["count"])
-    else:
-        total_in = sum(r["amount"] for r in selected if r.get("type") == "income")
-        total_out = sum(r["amount"] for r in selected if r.get("type") == "expense")
-        c1, c2, c3 = st.columns(3)
-        c1.metric("总收入", f"¥{total_in:.2f}")
-        c2.metric("总支出", f"¥{total_out:.2f}")
-        c3.metric("结余", f"¥{total_in - total_out:.2f}")
-
-    st.write(f"匹配记录 {len(selected)} 条")
-    if selected:
-        st.dataframe(selected, use_container_width=True, hide_index=True)
-
-
-def page_charts(records, mods):
-    """图表页"""
-    st.subheader("📈 数据图表")
-    if mods.get("render_charts") is None:
-        st.info("charts.py 模块开发中")
-        return
-    try:
-        mods["render_charts"](records)
-    except Exception as e:
-        st.error(f"图表渲染失败：{e}")
-
-
-def page_export(records, mods):
-    """CSV 导出页"""
-    st.subheader("💾 导出 CSV")
-    if mods.get("export_csv") is None:
-        st.info("export_data.py 模块开发中")
-        return
-    try:
-        data = mods["export_csv"](records)
-        st.download_button(
-            "下载 CSV",
-            data=data,
-            file_name="records.csv",
-            mime="text/csv",
-            use_container_width=True,
-        )
-    except Exception as e:
-        st.error(f"导出失败：{e}")
-
-
-# ========== 主入口 ==========
-def main():
-    st.title("💰 个人记账本")
-    records, mods = _safe_import()
-
-    page = st.sidebar.radio(
-        "导航",
-        ["📝 新增记账", "📋 最近记录", "🔍 筛选统计", "📈 数据图表", "💾 导出 CSV"],
+def page_export(records):
+    ui.heading("TAKE IT WITH YOU", "导出 CSV", f"将当前的 {len(records):,} 笔收支下载为 CSV。")
+    st.download_button(
+        "下载 CSV", data=export_csv(records), file_name="records.csv", mime="text/csv",
     )
-    st.sidebar.caption(f"当前共 {len(records)} 条记录")
 
-    if page.startswith("📝"):
-        page_add(records, mods)
-    elif page.startswith("📋"):
-        page_recent(records, mods)
-    elif page.startswith("🔍"):
-        page_filter_stat(records, mods)
-    elif page.startswith("📈"):
-        page_charts(records, mods)
-    elif page.startswith("💾"):
-        page_export(records, mods)
+
+def main():
+    st.set_page_config(page_title="拾光账本 · Pocket Days", page_icon=str(ui.BRAND_ICON), layout="wide")
+    ui.theme()
+    try:
+        records = load_records()
+    except ValueError as exc:
+        st.error(f"账本读取失败：{exc}")
+        return
+
+    pages = {
+        "新增记账": page_add,
+        "最近记录": page_recent,
+        "筛选统计": page_filter,
+        "数据图表": page_charts,
+        "编辑与删除": page_manage,
+        "导出 CSV": page_export,
+    }
+    with st.sidebar:
+        ui.brand()
+        page = st.radio("工作台", list(_NAV_LABELS), format_func=_NAV_LABELS.__getitem__, key="ledger_page")
+        ui.sidebar_note(len(records))
+    today = date.today()
+    ui.topbar(page, today)
+    if message := st.session_state.pop("notice", None):
+        st.success(message)
+    if page == "收支总览":
+        ui.overview(records, today, _navigate)
+    else:
+        pages[page](records)
 
 
 if __name__ == "__main__":

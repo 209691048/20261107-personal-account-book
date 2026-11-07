@@ -1,0 +1,20 @@
+/* 拾光账本 Streamlit 基础皮肤：仅样式，不改动数据接口。 */
+:root{--sg-bg:#f7f9f6;--sg-surface:#fff;--sg-ink:#1e332d;--sg-muted:#91a09a;--sg-primary:#2f816c;--sg-mint:#e9f7ef;--sg-peach:#f2b482;--sg-lavender:#a9b8f2;--sg-border:#ecf0ed;}
+html,body,[data-testid="stApp"],[data-testid="stAppViewContainer"]{background-color:var(--sg-bg);color:var(--sg-ink);font-family:-apple-system,BlinkMacSystemFont,"PingFang SC","Microsoft YaHei",sans-serif}
+[data-testid="stSidebar"]{background-color:#fff;border-right:1px solid var(--sg-border)}
+[data-testid="stSidebar"] [data-testid="stVerticalBlock"]{gap:.85rem}
+.main .block-container{padding-top:2.1rem;padding-bottom:2.5rem;max-width:1300px}
+h1,h2,h3{color:var(--sg-ink);letter-spacing:-.035em}h1{font-weight:800}h2,h3{font-weight:750}
+.stButton>button[kind="primary"],button[data-testid="stBaseButton-primary"]{background:#2f816c;border:0;border-radius:12px;color:white;font-weight:700;box-shadow:0 8px 20px #39866b29;transition:.2s}
+.stButton>button[kind="primary"]:hover,button[data-testid="stBaseButton-primary"]:hover{background:#236e58;transform:translateY(-1px);color:white}
+.stButton>button:not([kind="primary"]){border-radius:11px;border-color:#e4eee6}
+[data-testid="stMetric"]{background:#fff;border:1px solid var(--sg-border);border-radius:18px;padding:17px 20px;box-shadow:0 12px 35px #1a50300a}
+[data-testid="stMetricLabel"]{font-size:.82rem;color:#809789}
+[data-testid="stMetricValue"]{font-weight:800;color:#275e4b;letter-spacing:-.04em}
+[data-testid="stVerticalBlockBorderWrapper"]{border-radius:18px}
+[data-testid="stForm"]{background:#fff;border:1px solid var(--sg-border);border-radius:18px;padding:17px}
+[data-testid="stDataFrame"],.stDataFrame{border-radius:14px;overflow:hidden}
+.stTextInput input,.stNumberInput input,.stDateInput input,.stSelectbox [data-baseweb="select"]>div{border-radius:10px}
+.stTabs [data-baseweb="tab-list"]{gap:.35rem}.stTabs [data-baseweb="tab"]{border-radius:10px;font-weight:650;padding:.55rem 1.2rem}
+.stTabs [aria-selected="true"]{color:#2f816c}
+/* 兼容性提示：Streamlit 内部 data-testid 随版本变化，建议演示前锁定版本并检查样式。 */

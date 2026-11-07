@@ -1,0 +1,61 @@
+# 拾光账本 · Streamlit 界面集成指南
+
+> 本资源包提供前端视觉设计、静态交互稿、SVG 插画与 Streamlit 样式。**不包含真实记账、统计、文件读写实现**，这些模块仍由各组员按开发规范独立完成。
+
+## 最快捷的使用方式
+
+1. 浏览器打开根目录的 `index.html`，评审整体视觉布局。页面中金额、图表和记录都是**演示假数据**。
+2. 将 `streamlit/theme.css` 复制到项目的 `assets/theme.css`。保留你们原有的模块文件名和 API，不需要替换 `app.py`。
+3. 在团队成员自己编写的 `app.py` 启动逻辑中加载一次 CSS：
+
+   ```python
+   from pathlib import Path
+   import streamlit as st
+   css = Path("assets/theme.css").read_text(encoding="utf-8")
+   st.markdown(f"<style>{css}</style>", unsafe_allow_html=True)
+   ```
+
+4. 主界面使用 `st.columns` 实现「收入 / 支出 / 结余」概览、用 `st.form` 实现记账弹窗（或侧边栏表单）、用 `st.dataframe` 展示最近记录、用 Streamlit 图表显示分类统计。
+5. 将 `assets/*.svg` 放到项目的静态资源目录作品牌图标/插画。Streamlit SVG 直接展示方法随版本变化，请先在目标版本核对。
+
+## 页面建议结构
+
+- 侧边栏：品牌 LOGO、总览、收支明细、统计分析（分类管理可选）
+- 顶部：问候语「把日子过好，也把账记好。」、日期、显眼的「记一笔」按钮
+- 概览：总收入、总支出、结余三张 KPI 卡
+- 中部：收入与支出柱状图 + 类别支出环形图（都是可选加分功能）
+- 底部：最近 5 条收支记录，配类别小图标
+- 空状态：无记录时显示 `assets/empty-state.svg`，提示用户开始记账
+
+## 后端模块边界（不得改变）
+
+- `models.py` 统一 `id/date/type/amount/category/note/created_at` 7 字段
+- `storage.py` 独家负责 JSON 文件读写
+- `add_record.py`, `view_records.py`, `filter_records.py`, `statistics.py`, `charts.py`, `manage_records.py`, `export_data.py` 依照事先统一的函数签名实现
+- 主界面只做数据展示与交互调用，不自行复制业务逻辑
+
+## 优先级与截止时间
+
+- **P0**：三项数字卡、记一笔、最近记录、日期/类别/金额筛选、收入支出统计、可持久化的 JSON 数据。
+- **P1**：类目环图、支出趋势柱图、编辑/删除、CSV 导出。
+- **17:00** 演示前先确保基础功能可运行，图表或动效不应阻碍核心功能的完成。
+
+## 配色 / 视觉 Token
+
+| 用途 | 颜色 | Hex |
+|---|---|---|
+| 页面背景 | 淡米灰 | `#F7F9F6` |
+| 卡片背景 | 白色 | `#FFFFFF` |
+| 主品牌色 | 森林绿 | `#2F816C` |
+| 大标题 | 深墨绿 | `#1E332D` |
+| 薄荷点缀 | 淡绿 | `#E9F7EF` |
+| 支出强调 | 杏桃橙 | `#F2B482` |
+| 图表第二色 | 浅薰衣草 | `#A9B8F2` |
+| 辅助文字 | 灰绿 | `#91A09A` |
+| 边框 | 极浅灰绿 | `#ECF0ED` |
+
+圆角建议：卡片 18–22px，按钮 10–14px。主界面留白 22–32px，数字字体 24–32px。
+
+## 示例预览说明
+
+`index.html` 和 `script.js` 的按钮与图表切换仅展示 UI 交互，不会真实写入 JSON。可以用于讨论设计风格，不应直接当成完成的课程项目使用。所有 SVG 由本次设计原创绘制，无外部 CDN、第三方字体依赖。

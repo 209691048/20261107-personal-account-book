@@ -52,3 +52,13 @@ class ExportCsvTests(unittest.TestCase):
     def test_empty_export_has_only_header(self):
         header = ",".join(_FIELDS) + "\r\n"
         self.assertEqual(export_csv([]), header.encode("utf-8-sig"))
+
+    def test_formula_like_text_is_escaped_without_changing_source(self):
+        note = '  =SUM(1,2);"text"'
+        record = {"id": "@id", "amount": 3, "note": note}
+        data = export_csv([record]).decode("utf-8-sig")
+        row = next(csv.DictReader(StringIO(data, newline="")))
+        self.assertEqual(row["id"], "'@id")
+        self.assertEqual(row["note"], "'" + note)
+        self.assertEqual(row["amount"], "3")
+        self.assertEqual(record["note"], note)
