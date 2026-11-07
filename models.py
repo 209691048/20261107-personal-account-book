@@ -18,6 +18,7 @@ from datetime import datetime
 
 # Decimal：用于精确检查金额的小数位数，避免浮点数精度问题
 from decimal import Decimal, InvalidOperation
+from math import isfinite
 
 
 # ==================================================
@@ -149,7 +150,7 @@ def validate_record(record: dict) -> None:
         parsed_date = datetime.strptime(date, "%Y-%m-%d")
 
         # 再次格式化并比较，确保日期严格符合 YYYY-MM-DD
-        if parsed_date.strftime("%Y-%m-%d") != date:
+        if parsed_date.date().isoformat() != date:
             raise ValueError("日期格式必须为 YYYY-MM-DD")
 
     except ValueError:
@@ -182,6 +183,8 @@ def validate_record(record: dict) -> None:
     # 排除 0、负数、NaN 和无穷大
     if not decimal_amount.is_finite() or decimal_amount <= 0:
         raise ValueError("金额必须大于 0")
+    if not isfinite(float(decimal_amount)):
+        raise ValueError("金额超出可保存范围")
 
     # Decimal 的 exponent 表示小数位数的负值
     # 例如 12.50 的 exponent 为 -2
@@ -224,6 +227,8 @@ def validate_record(record: dict) -> None:
 
     try:
         # fromisoformat() 将 ISO 8601 字符串解析为时间对象
+        if created_at.endswith("Z"):
+            created_at = created_at[:-1] + "+00:00"
         parsed_time = datetime.fromisoformat(created_at)
 
         # 检查时间是否包含时区信息

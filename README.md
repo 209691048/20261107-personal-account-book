@@ -5,8 +5,9 @@
 
 ## 技术栈
 
-- **前端框架**：Streamlit 1.67
-- **数据处理**：pandas 3.0
+- **运行环境**：Python 3.10+
+- **前端框架**：Streamlit 1.x
+- **数据处理**：pandas 2.x、Altair
 - **数据存储**：本地 JSON 文件（`data/records.json`）
 - **界面设计**：深绿 + 浅绿配色，圆角卡片，数据图表可视化
 
@@ -20,8 +21,9 @@ personal-account-book/
 ├── add_record.py     # 新增记账表单
 ├── view_records.py   # 收支明细查看
 ├── filter_records.py # 条件筛选
-├── statistics.py     # 收支统计与汇总
-├── charts.py         # 柱状图 / 环形图可视化
+├── account_statistics.py # 收支统计与汇总
+├── statistics.py     # 原统计接口的兼容入口
+├── charts.py         # 收支对比与支出类别图表
 ├── manage_records.py # 编辑与删除记录
 ├── export_data.py    # CSV 导出
 ├── assets/           # UI 资源（设计稿、图标、样式）
@@ -45,16 +47,27 @@ pip install -r requirements.txt
 streamlit run app.py
 ```
 
-浏览器自动打开 http://localhost:8501 即可使用。
+在项目根目录运行后，打开 http://127.0.0.1:8501。默认仅允许本机访问。账本供单个 Streamlit 服务进程使用。
+
+`data/records.json` 由应用首次保存时创建，Git 只跟踪 `data/records.example.json`。从旧版更新时，如果已有记账数据，请先将 `data/records.json` 备份到仓库外，更新后再放回原路径。
 
 ## 核心功能
 
 - 📝 **记一笔**：快速记录收入 / 支出，支持分类、日期、备注
-- 📊 **总览仪表盘**：本月结余、收入、支出一目了然，附收支趋势柱状图
-- 🔍 **筛选统计**：按时间、类型、分类多维度筛选
-- 💳 **收支明细**：完整交易列表查看
-- 📈 **数据图表**：收支构成环形图、月度趋势对比
-- 📤 **导出 CSV**：数据导出备份
+- 🔍 **筛选统计**：按日期、类型、类别和金额筛选，查看收入、支出、结余及笔数
+- 💳 **收支明细**：查看最近 10 笔，或在筛选页查看全部符合条件的记录
+- 📈 **数据图表**：收支对比、支出类别分布及分类明细表
+- ✏️ **编辑与删除**：选择记录后修改，删除需要确认
+- 📤 **导出 CSV**：下载全部记录。可能被电子表格识别为公式的文本会加单引号前缀，原始 JSON 保留原值
+
+`assets/shiguang.html` 是独立的界面设计稿，使用示例数据。可从该文件直接预览。
+
+## 运行测试
+
+```bash
+python -m pip install pytest
+python -m pytest -q
+```
 
 ## 协作说明
 

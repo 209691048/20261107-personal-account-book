@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from models import create_record
+from storage import _RECORDS_LOCK
 
 
 def _load_records() -> list[dict]:
@@ -33,12 +34,10 @@ def add_record(
     """
     record = create_record(date, record_type, amount, category, note)
 
-    records = _load_records()
-    if not isinstance(records, list):
-        raise ValueError("load_records() 必须返回记录列表")
+    with _RECORDS_LOCK:
+        records = _load_records()
+        if not isinstance(records, list):
+            raise ValueError("load_records() 必须返回记录列表")
 
-    # 先复制列表，避免意外修改存储层可能返回的内部缓存。
-    updated_records = [*records]
-    updated_records.append(record)
-    _save_records(updated_records)
+        _save_records([*records, record])
     return record

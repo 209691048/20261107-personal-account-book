@@ -4,18 +4,29 @@ import json
 import os
 from pathlib import Path
 import tempfile
+from threading import RLock
+
+from models import validate_record
 
 
 _DATA_FILE = Path(__file__).resolve().parent / "data" / "records.json"
+_RECORDS_LOCK = RLock()
 
 
 def _validate_records(records: object) -> None:
-    """存储格式必须是数组，数组中的每条记录必须是字典。"""
+    """校验账本结构、记录字段及 ID 唯一性。"""
     if not isinstance(records, list):
         raise ValueError("记录数据必须是 JSON 数组（list）。")
+    record_ids = set()
     for index, record in enumerate(records):
-        if not isinstance(record, dict):
-            raise ValueError(f"第 {index + 1} 条记录必须是 JSON 对象（dict）。")
+        try:
+            validate_record(record)
+        except ValueError as exc:
+            raise ValueError(f"第 {index + 1} 条记录无效：{exc}") from exc
+        record_id = record["id"]
+        if record_id in record_ids:
+            raise ValueError(f"第 {index + 1} 条记录的 ID 重复。")
+        record_ids.add(record_id)
 
 
 def _reject_non_finite(value: str) -> None:
@@ -25,11 +36,11 @@ def _reject_non_finite(value: str) -> None:
 def load_records() -> list[dict]:
     """读取全部记录；文件不存在时返回空列表，损坏时明确报错。"""
     try:
-        with _DATA_FILE.open("r", encoding="utf-8") as source:
+        with _RECORDS_LOCK, _DATA_FILE.open("r", encoding="utf-8-sig") as source:
             records = json.load(source, parse_constant=_reject_non_finite)
     except FileNotFoundError:
         return []
-    except (ValueError, OSError) as exc:
+    except (ValueError, OSError, RecursionError) as exc:
         raise ValueError(
             f"无法读取记录文件 {_DATA_FILE}：{exc}。"
             "请检查原文件；不会将读取失败当成空记录。"
@@ -47,9 +58,13 @@ def save_records(records: list[dict]) -> None:
     except (TypeError, ValueError) as exc:
         raise ValueError(f"记录无法转换为 JSON，原文件未修改：{exc}") from exc
 
-    # 拒绝直接覆盖已有的损坏文件，避免把读取故障变成永久数据丢失。
-    load_records()
+    with _RECORDS_LOCK:
+        # 拒绝覆盖已有的损坏文件。
+        load_records()
+        _write_records(content)
 
+
+def _write_records(content: str) -> None:
     temporary_path = None
     try:
         _DATA_FILE.parent.mkdir(parents=True, exist_ok=True)

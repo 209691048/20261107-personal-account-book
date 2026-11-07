@@ -7,8 +7,11 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from concurrent.futures import ThreadPoolExecutor
 from unittest.mock import patch
 
+from add_record import add_record
+from manage_records import delete_record, update_record
 import storage
 
 
@@ -42,6 +45,11 @@ class StorageTests(unittest.TestCase):
         self.assertEqual(storage.load_records(), [])
         self.assertFalse(self.data_file.exists())
         self.assertFalse(self.data_file.parent.exists())
+
+    def test_reads_utf8_bom_written_by_other_editors(self):
+        records = [self.sample_record()]
+        self.write_raw(json.dumps(records, ensure_ascii=False).encode("utf-8-sig"))
+        self.assertEqual(storage.load_records(), records)
 
     def test_save_creates_directory_and_round_trips_chinese_records(self):
         records = [
@@ -86,6 +94,39 @@ class StorageTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             storage.load_records()
         self.assertEqual(self.data_file.read_bytes(), original)
+
+    def test_invalid_record_and_duplicate_id_block_reads_and_writes(self):
+        valid = self.sample_record()
+        for records in ([self.sample_record(amount="25.50")], [valid, valid]):
+            with self.subTest(records=records):
+                original = json.dumps(records).encode("utf-8")
+                self.write_raw(original)
+                with self.assertRaisesRegex(ValueError, "第 [12] 条记录"):
+                    storage.load_records()
+                with self.assertRaises(ValueError):
+                    storage.save_records([])
+                self.assertEqual(self.data_file.read_bytes(), original)
+
+    def test_concurrent_changes_preserve_other_records(self):
+        old = self.sample_record(created_at="2026-11-07T06:30:00Z")
+        removed = self.sample_record(id="remove")
+        storage.save_records([old, removed])
+
+        with ThreadPoolExecutor(max_workers=8) as pool:
+            adds = [
+                pool.submit(add_record, "2026-11-07", "expense", amount, "饮食")
+                for amount in range(1, 17)
+            ]
+            edit = pool.submit(update_record, old["id"], {"note": "已修改"})
+            deletion = pool.submit(delete_record, removed["id"])
+            added_ids = {result.result(timeout=10)["id"] for result in adds}
+            self.assertTrue(edit.result(timeout=10))
+            self.assertTrue(deletion.result(timeout=10))
+
+        records = {record["id"]: record for record in storage.load_records()}
+        self.assertEqual(set(records), added_ids | {old["id"]})
+        self.assertEqual(records[old["id"]]["note"], "已修改")
+        self.assertEqual(records[old["id"]]["created_at"], old["created_at"])
 
     def test_load_rejects_wrong_container_and_non_object_records(self):
         for value in ({}, None, "records", 12, [None], ["record"], [[]]):
