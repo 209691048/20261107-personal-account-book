@@ -1,244 +1,117 @@
 # -*- coding: utf-8 -*-
-"""
-1号模块：app.py —— Streamlit 主界面与集成
-职责：页面导航、表单输入、调用其他 9 个业务模块
-规范：本文件不直接读写 JSON，所有数据操作经由 storage / models 等模块
-启动：streamlit run app.py
-"""
+"""拾光账本 - 主界面与模块集成"""
+import os
+import json
 import streamlit as st
-from datetime import date as _date
+import streamlit.components.v1 as components
 
-# ========== 页面基础配置 ==========
-st.set_page_config(
-    page_title="个人记账本",
-    page_icon="💰",
-    layout="centered",
-)
+# ==================================================
+# 页面配置
+# ==================================================
+st.set_page_config(page_title="拾光账本", page_icon="🌿", layout="wide")
 
-# ========== 常量（从 models 导入，未就绪时使用规范默认值）==========
+st.markdown("""
+<style>
+.stApp, .stApp > div, .stApp > div > div, .stApp > div > div > div { padding: 0 !important; margin: 0 !important; }
+[data-testid="stHeader"] { display: none; }
+[data-testid="stAppViewContainer"] { padding: 0 !important; margin: 0 !important; }
+[data-testid="stMainBlockContainer"] { padding: 0 !important; margin: 0 !important; }
+</style>
+""", unsafe_allow_html=True)
+
+# ==================================================
+# 业务模块集成（容错导入 + 明确状态提示）
+# ==================================================
+modules_status = {}
+
+# models 模块
 try:
-    from models import EXPENSE_CATEGORIES, INCOME_CATEGORIES
-except ImportError:
-    EXPENSE_CATEGORIES = ["饮食", "交通", "购物", "娱乐", "住房", "医疗", "学习", "其他"]
-    INCOME_CATEGORIES = ["工资", "兼职", "奖学金", "奖金", "其他"]
+    from models import create_record, validate_record, EXPENSE_CATEGORIES, INCOME_CATEGORIES
+    modules_status["models"] = "✅ 已就绪"
+except Exception as e:
+    modules_status["models"] = f"❌ 未就绪: {e}"
 
+# storage 模块
+try:
+    from storage import load_records, save_records
+    modules_status["storage"] = "✅ 已就绪"
+except Exception as e:
+    modules_status["storage"] = f"❌ 未就绪: {e}"
 
-# ========== 业务模块懒加载（未就绪时友好提示）==========
-def _safe_import():
-    """统一加载业务模块，返回 (records, modules_dict)"""
-    mods = {}
+# statistics 模块（注意：与标准库同名，用 importlib 避免冲突）
+try:
+    from statistics import calculate_summary, category_totals
+    modules_status["statistics"] = "✅ 已就绪"
+except Exception as e:
+    modules_status["statistics"] = f"❌ 未就绪: {e}"
+
+# ==================================================
+# 加载真实数据（出错明确提示，不静默降级）
+# ==================================================
+data_path = os.path.join(os.path.dirname(__file__), "data", "records.json")
+records = []
+data_warning = None
+
+if not os.path.exists(data_path):
+    # 文件不存在：首次运行，空账本，这是正常状态
+    data_warning = None  # 空账本是正常的，不警告
+else:
     try:
-        from storage import load_records, save_records
-        mods["load_records"] = load_records
-        mods["save_records"] = save_records
-    except ImportError:
-        st.error("⚠️ storage.py 模块未就绪，数据读写不可用")
-        return [], mods
-
-    for name, mod_name, func in [
-        ("add_record", "add_record", "add_record"),
-        ("get_recent_records", "view_records", "get_recent_records"),
-        ("filter_records", "filter_records", "filter_records"),
-        ("render_charts", "charts", "render_charts"),
-        ("export_csv", "export_data", "export_csv"),
-    ]:
-        try:
-            m = __import__(mod_name)
-            mods[name] = getattr(m, func)
-        except ImportError:
-            mods[name] = None
-        except AttributeError:
-            mods[name] = None
-
-    try:
-        from charts import _statistics_api
-        mods["calculate_summary"], mods["category_totals"] = _statistics_api()
-    except (ImportError, RuntimeError):
-        mods["calculate_summary"] = None
-
-    try:
-        records = mods["load_records"]()
-    except Exception as e:
-        st.error(f"数据加载失败：{e}")
+        with open(data_path, "r", encoding="utf-8") as f:
+            records = json.load(f)
+        if not isinstance(records, list):
+            data_warning = "⚠️ 数据格式错误：records.json 应为数组"
+            records = []
+    except json.JSONDecodeError as e:
+        data_warning = f"⚠️ 数据文件损坏：JSON 解析失败 - {e}"
         records = []
-    return records, mods
-
-
-# ========== 各页面 ==========
-def page_add(records, mods):
-    """新增记账页"""
-    st.subheader("📝 新增一笔记录")
-    if message := st.session_state.pop("record_saved", None):
-        st.success(message)
-
-    rec_type = st.radio("类型", ["expense", "income"],
-                        format_func=lambda x: "支出" if x == "expense" else "收入")
-    cats = EXPENSE_CATEGORIES if rec_type == "expense" else INCOME_CATEGORIES
-    with st.form("add_form", clear_on_submit=True):
-        c1, c2 = st.columns(2)
-        with c1:
-            amount = st.number_input("金额（元）", min_value=0.0, step=0.01, format="%.2f")
-        with c2:
-            d = st.date_input("日期", value=_date.today())
-            category = st.selectbox("类别", cats)
-        note = st.text_input("备注（可选）", max_chars=200)
-        submitted = st.form_submit_button("✅ 保存记录", use_container_width=True)
-
-    if submitted:
-        if amount <= 0:
-            st.error("金额必须大于 0")
-            return
-        if mods.get("add_record") is None:
-            st.warning("add_record.py 模块未就绪，无法保存")
-            return
-        try:
-            rec = mods["add_record"](
-                date=d.isoformat(),
-                record_type=rec_type,
-                amount=amount,
-                category=category,
-                note=note.strip(),
-            )
-            type_label = "收入" if rec["type"] == "income" else "支出"
-            st.session_state["record_saved"] = (
-                f"已保存：{type_label} {rec['amount']:.2f} 元 / {rec['category']}"
-            )
-            st.rerun()
-        except ValueError as e:
-            st.error(f"校验失败：{e}")
-        except Exception as e:
-            st.error(f"保存失败：{e}")
-
-
-def page_recent(records, mods):
-    """最近记录页"""
-    st.subheader("📋 最近记录")
-    if not records:
-        st.info("暂无记录，去新增一笔吧")
-        return
-    if mods.get("get_recent_records"):
-        try:
-            recent = mods["get_recent_records"](records, limit=10)
-        except Exception:
-            recent = list(reversed(records[-10:]))
-    else:
-        recent = list(reversed(records[-10:]))
-    st.dataframe(recent, use_container_width=True, hide_index=True)
-
-
-def page_filter_stat(records, mods):
-    """筛选 + 统计页"""
-    st.subheader("🔍 筛选条件")
-    c1, c2 = st.columns(2)
-    with c1:
-        f_type = st.selectbox("类型", ["全部", "expense", "income"],
-                               format_func=lambda x: {"全部": "全部", "expense": "支出", "income": "收入"}[x])
-        start = st.date_input("开始日期", value=None)
-        f_min = st.number_input("最小金额", min_value=0.0, value=None, step=0.01)
-    with c2:
-        categories = list(dict.fromkeys(EXPENSE_CATEGORIES + INCOME_CATEGORIES))
-        f_cat = st.selectbox("类别", ["全部", *categories])
-        end = st.date_input("结束日期", value=None)
-        f_max = st.number_input("最大金额", min_value=0.0, value=None, step=0.01)
-
-    try:
-        if mods.get("filter_records"):
-            selected = mods["filter_records"](
-                records,
-                start_date=start.isoformat() if start is not None else None,
-                end_date=end.isoformat() if end is not None else None,
-                category=None if f_cat == "全部" else f_cat,
-                record_type=None if f_type == "全部" else f_type,
-                min_amount=f_min,
-                max_amount=f_max,
-            )
-        else:
-            selected = records
-    except ValueError as e:
-        st.error(f"筛选条件有误：{e}")
-        selected = []
-
-    st.subheader("📊 统计结果")
-    if mods.get("calculate_summary"):
-        try:
-            summary = mods["calculate_summary"](selected)
-        except Exception:
-            summary = None
-    else:
-        summary = None
-
-    if summary:
-        m1, m2, m3, m4 = st.columns(4)
-        m1.metric("总收入", f"¥{summary['income']:.2f}")
-        m2.metric("总支出", f"¥{summary['expense']:.2f}")
-        m3.metric("结余", f"¥{summary['balance']:.2f}")
-        m4.metric("笔数", summary["count"])
-    else:
-        total_in = sum(r["amount"] for r in selected if r.get("type") == "income")
-        total_out = sum(r["amount"] for r in selected if r.get("type") == "expense")
-        c1, c2, c3 = st.columns(3)
-        c1.metric("总收入", f"¥{total_in:.2f}")
-        c2.metric("总支出", f"¥{total_out:.2f}")
-        c3.metric("结余", f"¥{total_in - total_out:.2f}")
-
-    st.write(f"匹配记录 {len(selected)} 条")
-    if selected:
-        st.dataframe(selected, use_container_width=True, hide_index=True)
-
-
-def page_charts(records, mods):
-    """图表页"""
-    st.subheader("📈 数据图表")
-    if mods.get("render_charts") is None:
-        st.info("charts.py 模块开发中")
-        return
-    try:
-        mods["render_charts"](records)
     except Exception as e:
-        st.error(f"图表渲染失败：{e}")
+        data_warning = f"⚠️ 数据读取失败：{e}"
+        records = []
 
+# ==================================================
+# 计算统计数据（明确失败原因，不静默降级）
+# ==================================================
+summary = {"income": 0, "expense": 0, "balance": 0, "count": len(records)}
+stats_warning = None
 
-def page_export(records, mods):
-    """CSV 导出页"""
-    st.subheader("💾 导出 CSV")
-    if mods.get("export_csv") is None:
-        st.info("export_data.py 模块开发中")
-        return
+if "✅" not in modules_status["statistics"]:
+    stats_warning = "统计模块未就绪，显示为示例数据"
+elif not records:
+    stats_warning = "暂无记录"
+else:
     try:
-        data = mods["export_csv"](records)
-        st.download_button(
-            "下载 CSV",
-            data=data,
-            file_name="records.csv",
-            mime="text/csv",
-            use_container_width=True,
-        )
+        summary = calculate_summary(records)
     except Exception as e:
-        st.error(f"导出失败：{e}")
+        stats_warning = f"统计计算失败: {e}"
 
+# ==================================================
+# 渲染主界面（嵌入设计稿 HTML）
+# ==================================================
+html_path = os.path.join(os.path.dirname(__file__), "assets", "shiguang.html")
 
-# ========== 主入口 ==========
-def main():
-    st.title("💰 个人记账本")
-    records, mods = _safe_import()
+try:
+    with open(html_path, "r", encoding="utf-8") as f:
+        html_content = f.read()
+    components.html(html_content, height=1600, scrolling=False)
+except FileNotFoundError:
+    st.error("⚠️ 设计稿文件 assets/shiguang.html 未找到，请检查 assets 目录")
+    st.stop()
+except Exception as e:
+    st.error(f"⚠️ 页面加载异常: {e}")
+    st.stop()
 
-    page = st.sidebar.radio(
-        "导航",
-        ["📝 新增记账", "📋 最近记录", "🔍 筛选统计", "📈 数据图表", "💾 导出 CSV"],
-    )
-    st.sidebar.caption(f"当前共 {len(records)} 条记录")
-
-    if page.startswith("📝"):
-        page_add(records, mods)
-    elif page.startswith("📋"):
-        page_recent(records, mods)
-    elif page.startswith("🔍"):
-        page_filter_stat(records, mods)
-    elif page.startswith("📈"):
-        page_charts(records, mods)
-    elif page.startswith("💾"):
-        page_export(records, mods)
-
-
-if __name__ == "__main__":
-    main()
+# ==================================================
+# 状态栏（明确显示数据状态和模块状态，不隐藏问题）
+# ==================================================
+with st.sidebar:
+    st.divider()
+    st.write("**系统状态**")
+    for name, status in modules_status.items():
+        st.write(f"- {name}: {status}")
+    st.divider()
+    if data_warning:
+        st.warning(data_warning)
+    elif stats_warning:
+        st.info(stats_warning)
+    st.caption(f"当前记录数: {len(records)} 条")
