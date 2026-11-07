@@ -1,0 +1,28 @@
+// 仅用于设计稿交互预览：无业务逻辑，也不会存取本地 JSON。
+const $ = (s) => document.querySelector(s);
+const modal = $('#modal');
+function showToast(message) {
+  const toast = $('#toast'); toast.textContent = message; toast.classList.add('visible');
+  clearTimeout(showToast.timer); showToast.timer = setTimeout(()=>toast.classList.remove('visible'), 3500);
+}
+function toggleModal(open){modal.classList.toggle('show',open);modal.setAttribute('aria-hidden',String(!open));}
+$('#open-add').addEventListener('click',()=>toggleModal(true));
+$('#close-modal').addEventListener('click',()=>toggleModal(false));
+modal.addEventListener('click',(e)=>{if(e.target===modal) toggleModal(false)});
+document.addEventListener('keydown',(e)=>{if(e.key==='Escape')toggleModal(false)});
+$('#save-preview').addEventListener('click',()=>{toggleModal(false);showToast('✳ 已完成交互演示：接入 add_record.py / storage.py 后可保存真实数据。')});
+document.querySelectorAll('.type-select button').forEach(btn=>btn.addEventListener('click',()=>{document.querySelectorAll('.type-select button').forEach(b=>b.classList.remove('active'));btn.classList.add('active')}));
+document.querySelectorAll('.nav-item').forEach(btn=>btn.addEventListener('click',()=>{
+  document.querySelectorAll('.nav-item').forEach(b=>b.classList.remove('active'));btn.classList.add('active');
+  const section=btn.dataset.section;const target={overview:'.page-content',records:'#records',stats:'#trends',categories:'#category-panel'}[section];
+  $('#crumb').textContent={overview:'收支总览',records:'收支明细',stats:'统计分析',categories:'分类管理'}[section];
+  if(target)$(target).scrollIntoView({behavior:'smooth',block:'start'});
+}));
+$('#view-all').addEventListener('click',()=>showToast('✳ 这里预留“全部收支记录”页面入口，请接入 view_records.py。'));
+const month=[['6 月',60,34],['7 月',80,40],['8 月',64,46],['9 月',90,29],['10 月',74,52],['11 月',82,23.5]];
+const week=[['周一',55,34],['周二',68,42],['周三',39,68],['周四',72,35],['周五',86,58],['周六',64,79]];
+document.querySelectorAll('.toggle button').forEach(btn=>btn.addEventListener('click',()=>{
+  document.querySelectorAll('.toggle button').forEach(b=>b.classList.remove('selected'));btn.classList.add('selected');
+  const data=btn.dataset.period==='week'?week:month;
+  $('#bars').innerHTML=data.map(([label,a,b])=>`<div class="bar-group"><div class="pair"><span class="bar in" style="height:${a}%"></span><span class="bar out" style="height:${b}%"></span></div><label>${label}</label></div>`).join('');
+}));
