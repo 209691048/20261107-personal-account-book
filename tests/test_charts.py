@@ -2,7 +2,7 @@
 """charts.py 的单元测试。
 
 测试不依赖真实 Streamlit 运行时：
-- 用假的 statistics 模块固定统计口径；
+- 用假的 account_statistics 模块固定统计口径；
 - 用 FakeStreamlit 记录 render_charts 调用了哪些组件。
 
 重点覆盖：空数据、只有收入 / 只有支出、排序与过滤、返回结构校验、
@@ -125,11 +125,11 @@ class FakeStreamlit:
 
 class ChartsTestCase(unittest.TestCase):
     def setUp(self):
-        stub = types.ModuleType("statistics")
+        stub = types.ModuleType("account_statistics")
         stub.calculate_summary = fake_calculate_summary
         stub.category_totals = fake_category_totals
         self.stub = stub
-        patcher = mock.patch.dict(sys.modules, {"statistics": stub})
+        patcher = mock.patch.dict(sys.modules, {"account_statistics": stub})
         patcher.start()
         self.addCleanup(patcher.stop)
 
@@ -250,11 +250,11 @@ class ChartsTestCase(unittest.TestCase):
             charts._prepare_summary(RECORDS)
 
     def test_missing_statistics_module_raises_clear_error(self):
-        empty_module = types.ModuleType("statistics")
-        with mock.patch.dict(sys.modules, {"statistics": empty_module}):
+        empty_module = types.ModuleType("account_statistics")
+        with mock.patch.dict(sys.modules, {"account_statistics": empty_module}):
             with self.assertRaises(RuntimeError) as caught:
                 charts._prepare_summary([])
-        self.assertIn("statistics.py", str(caught.exception))
+        self.assertIn("account_statistics.py", str(caught.exception))
 
     # ---------------- 小工具 ----------------
     def test_format_money(self):

@@ -5,24 +5,22 @@
 ----
 在 Streamlit 页面中展示两张图：
 
-1. 收入 / 支出对比（柱状图，数据来自 ``statistics.calculate_summary``）；
-2. 支出类别分布（横向条形图，数据来自 ``statistics.category_totals``）。
+1. 收入 / 支出对比（柱状图，数据来自 ``account_statistics.calculate_summary``）；
+2. 支出类别分布（横向条形图，数据来自 ``account_statistics.category_totals``）。
 
 约束（见《个人记账本开发规范 v1.0》）
 ------------------------------------
 - 对外只暴露 ``render_charts(records) -> None``；
 - 不读写 ``data/records.json``，不修改传入的 ``records``；
 - 空数据只提示，不抛异常；
-- 统计口径全部复用 ``statistics.py``，不在本模块重复实现。
+- 统计口径全部复用 ``account_statistics.py``。
 
 依赖：``streamlit``、``pandas``、``altair``（后两者随 Streamlit 安装）。
 """
 
 from __future__ import annotations
 
-from functools import cache
-from importlib.util import module_from_spec, spec_from_file_location
-from pathlib import Path
+from sys import float_info
 from typing import Any
 
 import altair as alt
@@ -48,34 +46,17 @@ _SUMMARY_KEYS = ("income", "expense", "balance", "count")
 
 
 # ---------------------------------------------------------------------------
-# 数据准备：只调用 statistics.py，不自己算统计口径
+# 数据准备：复用统计模块
 # ---------------------------------------------------------------------------
-@cache
-def _load_local_statistics(path: Path):
-    """按文件路径加载项目统计模块，避免覆盖已加载的标准库模块。"""
-    spec = spec_from_file_location("_account_book_statistics", path)
-    if spec is None or spec.loader is None:
-        raise ImportError(f"无法加载 {path}")
-    module = module_from_spec(spec)
-    spec.loader.exec_module(module)
-    return module
-
-
 def _statistics_api():
-    """延迟读取项目统计接口，兼容同名标准库已被加载的进程。"""
+    """延迟读取项目统计接口。"""
     try:
-        import statistics
-
-        local_path = Path(__file__).resolve().with_name("statistics.py")
-        module_path = getattr(statistics, "__file__", None)
-        if module_path is not None and Path(module_path).resolve() != local_path:
-            statistics = _load_local_statistics(local_path)
-        return statistics.calculate_summary, statistics.category_totals
-    except (AttributeError, ImportError, OSError) as exc:
+        from account_statistics import calculate_summary, category_totals
+    except ImportError as exc:
         raise RuntimeError(
-            "charts 依赖 statistics.py 的 calculate_summary() 和 "
-            "category_totals()，请先合并 7 号统计模块"
+            "charts 依赖 account_statistics.py 的 calculate_summary() 和 category_totals()"
         ) from exc
+    return calculate_summary, category_totals
 
 
 def _as_record_list(records: Any) -> list[dict]:
@@ -187,7 +168,7 @@ def _comparison_chart(summary: dict) -> alt.LayerChart:
         y=alt.Y(
             "amount:Q",
             title=None,
-            scale=alt.Scale(domain=[0, peak * 1.18], zero=True),
+            scale=alt.Scale(domain=[0, min(peak * 1.18, float_info.max)], zero=True),
             axis=alt.Axis(
                 labelColor=MUTED,
                 gridColor=GRID,
@@ -237,7 +218,7 @@ def _category_chart(frame: pd.DataFrame) -> alt.LayerChart:
         x=alt.X(
             "amount:Q",
             title=None,
-            scale=alt.Scale(domain=[0, peak * 1.22], zero=True),
+            scale=alt.Scale(domain=[0, min(peak * 1.22, float_info.max)], zero=True),
             axis=alt.Axis(
                 labelColor=MUTED,
                 gridColor=GRID,
@@ -296,18 +277,18 @@ def render_charts(records: list[dict]) -> None:
     balance_col.metric("结余", _format_money(summary["balance"]))
 
     st.markdown("**收入与支出对比**")
-    st.altair_chart(_comparison_chart(summary), use_container_width=True)
+    st.altair_chart(_comparison_chart(summary))
 
     st.markdown("**支出类别分布**")
     if category_frame.empty:
         st.info("暂无支出记录，添加一笔支出后这里会显示分类图表。")
         return
 
-    st.altair_chart(_category_chart(category_frame), use_container_width=True)
+    st.altair_chart(_category_chart(category_frame))
 
     # 表格视图：图表之外也能逐项读到数值（打印、色觉障碍、读屏都更友好）。
     with st.expander("查看分类数据表"):
         table = category_frame.copy()
         table["amount"] = table["amount"].map(_format_money)
         table.columns = ["类别", "金额"]
-        st.dataframe(table, hide_index=True, use_container_width=True)
+        st.dataframe(table, hide_index=True)

@@ -43,6 +43,7 @@ class FilterRecordsTests(unittest.TestCase):
             ({"min_amount": 20}, ["d", "c", "b"]),
             ({"max_amount": 20}, ["b", "a"]),
             ({"max_amount": 0}, []),
+            ({"min_amount": 10**400}, []),
             ({"min_amount": 20, "max_amount": 20}, ["b"]),
             ({"start_date": "2026-11-07", "end_date": "2026-11-07"}, ["c", "b"]),
         ]

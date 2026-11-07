@@ -1,4 +1,6 @@
-from statistics import calculate_summary, category_totals
+import pytest
+
+from account_statistics import calculate_summary, category_totals
 
 def test_empty_records():
     res = calculate_summary([])
@@ -29,11 +31,17 @@ def test_category_total_expense():
 
 def test_category_bad_param():
     """验证传入非法record_type会抛出ValueError"""
-    try:
+    with pytest.raises(ValueError, match="record_type"):
         category_totals([], record_type="hello")
-        return False
-    except ValueError:
-        return True
+
+
+def test_balance_keeps_cents_after_large_amounts_cancel():
+    records = [
+        {"type": "income", "amount": 10_000_000_000_000_000, "category": "工资"},
+        {"type": "income", "amount": 0.01, "category": "其他"},
+        {"type": "expense", "amount": 10_000_000_000_000_000, "category": "其他"},
+    ]
+    assert calculate_summary(records)["balance"] == 0.01
 
 
 if __name__ == "__main__":
@@ -47,8 +55,7 @@ if __name__ == "__main__":
     print("✅ test_category_total_expense 通过")
 
     # 手动执行异常用例
-    bad_param_ok = test_category_bad_param()
-    assert bad_param_ok is True
+    test_category_bad_param()
     print("✅ test_category_bad_param 通过")
 
     print("\n===== 全部4项测试逻辑验证完成 =====")

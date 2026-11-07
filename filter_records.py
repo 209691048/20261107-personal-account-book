@@ -34,7 +34,7 @@ def filter_records(
         if value is not None and (
             isinstance(value, bool)
             or not isinstance(value, (int, float))
-            or not isfinite(value)
+            or (isinstance(value, float) and not isfinite(value))
         ):
             raise ValueError(f"{name} 必须是有限数字")
     if min_amount is not None and max_amount is not None and min_amount > max_amount:
