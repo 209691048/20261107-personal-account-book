@@ -8,6 +8,9 @@ venv/
 .venv/
 env/
 
+# Streamlit
+.streamlit/secrets.toml
+
 # IDE
 .idea/
 .vscode/
@@ -18,10 +21,8 @@ env/
 .DS_Store
 Thumbs.db
 
-# 运行时产物（保留 data/records.json 作为初始空数据，但不导出用户数据）
-exports/
-*.csv
-!screenshots/*.png
+# 本地真实数据不提交（规范要求），只保留 example
+data/records.json
 
 # 测试与缓存
 .pytest_cache/
