@@ -268,7 +268,7 @@ def render_charts(records: list[dict]) -> None:
     """
     record_list = _as_record_list(records)
 
-    st.subheader("数据图表")
+    # 页面标题由 app.py 的 page_charts() 负责，这里不再重复输出。
     if not record_list:
         st.info("暂无记账数据。先添加一笔收入或支出，这里会自动生成图表。")
         return
