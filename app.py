@@ -3,6 +3,7 @@
 from datetime import date
 
 import streamlit as st
+import ledger_ui as ui
 
 from account_statistics import calculate_summary
 from add_record import add_record
@@ -17,6 +18,19 @@ from view_records import get_recent_records
 
 _TYPE_LABELS = {"expense": "支出", "income": "收入"}
 _CATEGORIES = {"expense": EXPENSE_CATEGORIES, "income": INCOME_CATEGORIES}
+_NAV_LABELS = {
+    "收支总览": "▦   收支总览",
+    "新增记账": "＋   新增记账",
+    "最近记录": "≡   最近记录",
+    "筛选统计": "⌕   筛选统计",
+    "数据图表": "▥   数据图表",
+    "编辑与删除": "✎   编辑与删除",
+    "导出 CSV": "↧   导出 CSV",
+}
+
+
+def _navigate(page):
+    st.session_state["ledger_page"] = page
 
 
 def _record_fields(record_type, record):
@@ -61,7 +75,7 @@ def _record_table(records):
 
 
 def page_add(records):
-    st.subheader("新增记账")
+    ui.heading("A LITTLE MOMENT", "新增记账", "记下一笔刚刚发生的收入或支出。")
     record_type = st.radio(
         "类型", list(_TYPE_LABELS), format_func=_TYPE_LABELS.__getitem__, horizontal=True,
     )
@@ -84,35 +98,37 @@ def page_add(records):
 
 
 def page_recent(records):
-    st.subheader("最近记录")
+    ui.heading("LITTLE MOMENTS", "最近记录", "按记账日期查看最近 10 笔收支。")
     if records:
         _record_table(get_recent_records(records))
     else:
-        st.info("暂无记录，可以先新增一笔。")
+        ui.empty_state("还没有流水", "新增第一笔记录后，这里会显示最新的收支。")
+        st.button("＋ 记一笔", type="primary", on_click=_navigate, args=("新增记账",))
 
 
 def page_filter(records):
-    st.subheader("筛选统计")
-    left, right = st.columns(2)
-    record_type = left.selectbox(
-        "类型", [None, *_TYPE_LABELS],
-        format_func=lambda value: _TYPE_LABELS.get(value, "全部"),
-    )
-    categories = _CATEGORIES.get(record_type, list(dict.fromkeys(EXPENSE_CATEGORIES + INCOME_CATEGORIES)))
-    category = right.selectbox("类别", ["全部", *categories])
-    if category not in categories:
-        category = None
-
+    ui.heading("FIND A RECORD", "筛选统计", "组合筛选条件，看看这段时间的每笔收支。")
     today = date.today()
     record_dates = [date.fromisoformat(record["date"]) for record in records]
     date_bounds = {
         "min_value": min([date(1900, 1, 1), *record_dates]),
         "max_value": max([date(2100, 12, 31), today, *record_dates]),
     }
-    start = left.date_input("开始日期", value=None, **date_bounds)
-    end = right.date_input("结束日期", value=None, **date_bounds)
-    minimum = left.number_input("最小金额", min_value=0.0, value=None, step=0.01, format="%.2f")
-    maximum = right.number_input("最大金额", min_value=0.0, value=None, step=0.01, format="%.2f")
+    with st.container(border=True):
+        ui.heading("FILTERS", "筛选条件", "留空的条件不限。", panel=True)
+        kinds, dates, amounts = st.columns(3)
+        record_type = kinds.selectbox(
+            "类型", [None, *_TYPE_LABELS],
+            format_func=lambda value: _TYPE_LABELS.get(value, "全部"),
+        )
+        categories = _CATEGORIES.get(record_type, list(dict.fromkeys(EXPENSE_CATEGORIES + INCOME_CATEGORIES)))
+        category = kinds.selectbox("类别", ["全部", *categories])
+        if category not in categories:
+            category = None
+        start = dates.date_input("开始日期", value=None, **date_bounds)
+        end = dates.date_input("结束日期", value=None, **date_bounds)
+        minimum = amounts.number_input("最小金额", min_value=0.0, value=None, step=0.01, format="%.2f")
+        maximum = amounts.number_input("最大金额", min_value=0.0, value=None, step=0.01, format="%.2f")
     try:
         selected = filter_records(
             records, start_date=start.isoformat() if start else None,
@@ -131,12 +147,18 @@ def page_filter(records):
     count.metric("笔数", summary["count"])
     if selected:
         _record_table(selected)
+    elif not records:
+        ui.empty_state("还没有流水", "记下第一笔收入或支出，再来看看你的收支统计。")
+        st.button("＋ 记一笔", type="primary", on_click=_navigate, args=("新增记账",))
     else:
-        st.info("没有符合条件的记录。")
+        ui.empty_state("没有符合条件的记录", "可以调整日期、类别或金额范围。")
 
 
 def page_charts(records):
-    st.subheader("数据图表")
+    ui.heading("THE BIG PICTURE", "数据图表", "查看全部记录的收支对比与支出类别分布。")
+    if not records:
+        ui.empty_state("图表在等第一笔记录", "新增收入或支出后，图表会自动生成。")
+        return
     try:
         render_charts(records)
     except ValueError as exc:
@@ -144,9 +166,9 @@ def page_charts(records):
 
 
 def page_manage(records):
-    st.subheader("编辑与删除")
+    ui.heading("TIDY THE BOOK", "编辑与删除", "选中一笔流水后修改，删除前需要确认。")
     if not records:
-        st.info("暂无可编辑的记录。")
+        ui.empty_state("暂无可编辑的记录", "记下第一笔流水后，就可以在这里管理。")
         return
 
     by_id = {record["id"]: record for record in get_recent_records(records, limit=len(records))}
@@ -194,23 +216,21 @@ def page_manage(records):
 
 
 def page_export(records):
-    st.subheader("导出 CSV")
+    ui.heading("TAKE IT WITH YOU", "导出 CSV", f"将当前的 {len(records):,} 笔收支下载为 CSV。")
     st.download_button(
         "下载 CSV", data=export_csv(records), file_name="records.csv", mime="text/csv",
     )
 
 
 def main():
-    st.set_page_config(page_title="拾光账本", page_icon="🌿", layout="wide")
-    st.title("🌿 拾光账本")
+    st.set_page_config(page_title="拾光账本 · Pocket Days", page_icon=str(ui.BRAND_ICON), layout="wide")
+    ui.theme()
     try:
         records = load_records()
     except ValueError as exc:
         st.error(f"账本读取失败：{exc}")
         return
 
-    if message := st.session_state.pop("notice", None):
-        st.success(message)
     pages = {
         "新增记账": page_add,
         "最近记录": page_recent,
@@ -219,9 +239,18 @@ def main():
         "编辑与删除": page_manage,
         "导出 CSV": page_export,
     }
-    page = st.sidebar.radio("工作台", list(pages))
-    st.sidebar.caption(f"当前记录数：{len(records)} 条")
-    pages[page](records)
+    with st.sidebar:
+        ui.brand()
+        page = st.radio("工作台", list(_NAV_LABELS), format_func=_NAV_LABELS.__getitem__, key="ledger_page")
+        ui.sidebar_note(len(records))
+    today = date.today()
+    ui.topbar(page, today)
+    if message := st.session_state.pop("notice", None):
+        st.success(message)
+    if page == "收支总览":
+        ui.overview(records, today, _navigate)
+    else:
+        pages[page](records)
 
 
 if __name__ == "__main__":

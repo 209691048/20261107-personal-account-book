@@ -36,6 +36,7 @@ def test_record_workflow(ledger, monkeypatch):
     earlier = today - timedelta(days=1)
 
     assert not ledger.exists()
+    widget(app.button, "＋ 记一笔").click().run()
     widget(app.text_input, "备注（可选）").set_value("暂未提交")
     app.button[0].click().run()
     assert "金额必须大于 0" in app.error[0].value
@@ -60,6 +61,12 @@ def test_record_workflow(ledger, monkeypatch):
     app = AppTest.from_file(str(APP), default_timeout=20).run()
     nav("最近记录")
     assert app.dataframe[0].value["金额（元）"].tolist() == [30.0, 100.0]
+
+    nav("收支总览")
+    overview = "".join(element.value for element in app.markdown)
+    assert "本月结余" in overview
+    assert ("¥70.00" if today.month == earlier.month else "−¥30.00") in overview
+    assert "暂未提交" in overview
 
     nav("筛选统计")
     assert [metric.value for metric in app.metric] == ["¥100.00", "¥30.00", "¥70.00", "2"]
