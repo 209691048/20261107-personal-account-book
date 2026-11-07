@@ -23,3 +23,18 @@ def calculate_summary(records: list[dict]) -> dict:
         "balance": balance,
         "count": count
     }
+
+
+def category_totals(records: list[dict], record_type: str = "expense") -> dict[str, float]:
+    """汇总指定收支类型下各分类的金额。"""
+    if record_type not in ("income", "expense"):
+        raise ValueError(f"record_type 只能是 'income' 或 'expense'，收到: {record_type}")
+
+    totals: dict[str, float] = {}
+    for record in records:
+        if record['type'] == record_type:
+            category = record['category']
+            amount = float(record['amount'])
+            totals[category] = totals.get(category, 0.0) + amount
+
+    return {cat: round(amt, 2) for cat, amt in totals.items()}
